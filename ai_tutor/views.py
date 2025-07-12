@@ -8,7 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.shortcuts import render
 from django.utils import timezone
-
+import uuid
 from ai_tutor.models import QuerySession, QuestionAnswer, TutorPersona
 from copying.rag_pipeline import RAGPipeline
 from knowledge_base.models import Content
@@ -164,21 +164,38 @@ class AskQuestionView(BaseApiView):
         return persona
 
     def _get_or_create_session(self, session_id, persona, request):
-        """Get or create query session"""
-        if session_id:
-            try:
-                session = QuerySession.objects.get(session_id=session_id)
-                return session
-            except QuerySession.DoesNotExist:
-                pass
-        
-         # Create new session
-        session = QuerySession.objects.create(
-            persona=persona,
-            user_ip=self._get_client_ip(request),
-            user_agent=request.META.get('HTTP_USER_AGENT', '')[:255]
-        )
-        return session
+        """Get or create query session with more flexible session_id handling"""
+        try:
+            # First try to convert the incoming session_id to UUID if it's not already
+            if session_id and not isinstance(session_id, uuid.UUID):
+                try:
+                    session_id = uuid.UUID(session_id)
+                except (ValueError, AttributeError):
+                    # If conversion fails, treat as new session
+                    session_id = None
+            
+            if session_id:
+                try:
+                    session = QuerySession.objects.get(session_id=session_id)
+                    return session
+                except QuerySession.DoesNotExist:
+                    pass
+            
+            # Create new session
+            session = QuerySession.objects.create(
+                persona=persona,
+                user_ip=self._get_client_ip(request),
+                user_agent=request.META.get('HTTP_USER_AGENT', '')[:255]
+            )
+            return session
+        except Exception as e:
+            logger.error(f"Error in session handling: {str(e)}")
+            # Fallback to creating new session
+            return QuerySession.objects.create(
+                persona=persona,
+                user_ip=self._get_client_ip(request),
+                user_agent=request.META.get('HTTP_USER_AGENT', '')[:255]
+            )
     
     
     
@@ -222,3 +239,26 @@ class AskQuestionView(BaseApiView):
                 content.save(update_fields=['retrieval_count', 'last_accessed'])
             except Content.DoesNotExist:
                 continue    
+            
+    def _format_sources(self, sources):
+        """Format sources for frontend display"""
+        formatted_sources = []
+        
+        for source in sources:
+            formatted_source = {
+                'id': source.get('id'),
+                'title': source.get('title', 'Unknown'),
+                'topic': source.get('topic', 'General'),
+                'grade': source.get('grade', 'N/A'),
+                'similarity': round(source.get('similarity', 0.0), 3),
+                'excerpt': self._truncate_text(source.get('content', ''), 200)
+            }
+            formatted_sources.append(formatted_source)
+        
+        return formatted_sources
+    
+    def _truncate_text(self, text, max_length):
+        """Truncate text with ellipsis"""
+        if len(text) <= max_length:
+            return text
+        return text[:max_length].rsplit(' ', 1)[0] + '...'        

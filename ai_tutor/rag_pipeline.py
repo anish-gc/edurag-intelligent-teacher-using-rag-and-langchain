@@ -248,8 +248,10 @@ class RagPipeLine:
 
         try:
             logger.info(f"Generating answer for question: {question[:100]}...")
+            print("fucke")
 
             total_content = Content.objects.count()
+            print(total_content)
             active_content = Content.objects.filter(is_active=True).count()
 
             content_with_embeddings = Content.objects.filter(
