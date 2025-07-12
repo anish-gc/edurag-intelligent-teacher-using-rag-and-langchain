@@ -13,9 +13,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-jfp(5&_85)9y#wr9(7v)1y4vybzxzgj7(*1ltz)g!o=qk0#&vr')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DEBUG', default=False, cast=bool)
+DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=lambda v: [s.strip() for s in v.split(',')])
+ALLOWED_HOSTS = ["*"]
+# ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=lambda v: [s.strip() for s in v.split(',')])
 
 # ==============================================================================
 # DJANGO APPS
@@ -37,7 +38,6 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     'knowledge_base',
-    'content',
     'ai_tutor',
     'retrieval',
     'monitoring',
@@ -131,17 +131,17 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # SECURITY SETTINGS
 # ==============================================================================
 
-if not DEBUG:
-    # HTTPS settings
-    SECURE_SSL_REDIRECT = True
-    SECURE_HSTS_SECONDS = 31536000  # 1 year
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
-    SECURE_CONTENT_TYPE_NOSNIFF = True
-    SECURE_BROWSER_XSS_FILTER = True
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
-    X_FRAME_OPTIONS = 'DENY'
+# if not DEBUG:
+#     # HTTPS settings
+#     SECURE_SSL_REDIRECT = True
+#     SECURE_HSTS_SECONDS = 31536000  # 1 year
+#     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+#     SECURE_HSTS_PRELOAD = True
+#     SECURE_CONTENT_TYPE_NOSNIFF = True
+#     SECURE_BROWSER_XSS_FILTER = True
+#     SESSION_COOKIE_SECURE = True
+#     CSRF_COOKIE_SECURE = True
+#     X_FRAME_OPTIONS = 'DENY'
 
 # ==============================================================================
 # THIRD PARTY SETTINGS
@@ -257,16 +257,16 @@ os.makedirs(BASE_DIR / 'logs', exist_ok=True)
 # CACHE
 # ==============================================================================
 
-CACHES = {
-    'default': {
-        'BACKEND': config('CACHE_BACKEND', default='django.core.cache.backends.locmem.LocMemCache'),
-        'LOCATION': config('CACHE_LOCATION', default='unique-snowflake'),
-        'TIMEOUT': config('CACHE_TIMEOUT', default=300, cast=int),
-        'OPTIONS': {
-            'MAX_ENTRIES': config('CACHE_MAX_ENTRIES', default=1000, cast=int),
-        }
-    }
-}
+# CACHES = {
+#     'default': {
+#         'BACKEND': config('CACHE_BACKEND', default='django.core.cache.backends.locmem.LocMemCache'),
+#         'LOCATION': config('CACHE_LOCATION', default='unique-snowflake'),
+#         'TIMEOUT': config('CACHE_TIMEOUT', default=300, cast=int),
+#         'OPTIONS': {
+#             'MAX_ENTRIES': config('CACHE_MAX_ENTRIES', default=1000, cast=int),
+#         }
+#     }
+# }
 
 # ==============================================================================
 # EMAIL (if needed)
