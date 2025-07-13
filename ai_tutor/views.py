@@ -1,3 +1,4 @@
+import uuid
 import json
 import logging
 import time
@@ -8,10 +9,8 @@ from django.utils.decorators import method_decorator
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.core.paginator import Paginator
-import uuid
     
 from django.db import models
-
 from ai_tutor.models import QuerySession, QuestionAnswer, TutorPersona
 from ai_tutor.rag_pipeline import RagPipeLine
 from knowledge_base.models import Content, Topic
@@ -131,7 +130,7 @@ class AskQuestionView(BaseApiView):
             
             # Format response
             response_data = {
-                'id': qa.id,
+                'id': str(qa.id),
                 'question': question,
                 'answer': result['answer'],
                 'persona': persona_name,
@@ -320,17 +319,7 @@ class AskQuestionView(BaseApiView):
         return text[:max_length].rsplit(' ', 1)[0] + '...'        
     
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
     
 
 class AnalyticsView(BaseApiView):
@@ -496,8 +485,6 @@ class AnalyticsView(BaseApiView):
     
     
     
-    
-
 
 class QuestionHistoryView(BaseApiView):
     """Get question history with advanced filtering"""
@@ -576,8 +563,7 @@ class QuestionHistoryView(BaseApiView):
         if len(text) <= max_length:
             return text
         return text[:max_length].rsplit(' ', 1)[0] + '...'
-
-    
+   
 
 @method_decorator(csrf_exempt, name='dispatch')
 class RateAnswerView(BaseApiView):
@@ -624,8 +610,6 @@ class RateAnswerView(BaseApiView):
         except Exception as e:
             logger.error(f"Error in RateAnswerView: {str(e)}")
             return JsonResponse({'error': 'Failed to save rating'}, status=500)
-    
-    
     
     
 
@@ -764,7 +748,4 @@ class ExportDataView(BaseApiView):
         }
             
             
-            
-            
-
 

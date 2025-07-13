@@ -11,6 +11,9 @@ from knowledge_base.models import Content
 from sklearn.metrics.pairwise import cosine_similarity
 from django.utils import timezone
 from retrieval.models import ContentRetrievalLog
+import json
+import uuid
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +34,8 @@ class RagPipeLine:
     def generate_embedding(self, text):
         """Generate embeddings using OpenAI API with fallback"""
         try:
-            text = text[:20000] if len(text) > 8000 else text
+            # Truncate text to avoid token limits
+            text = text[:8000] if len(text) > 8000 else text
 
             response = openai.embeddings.create(
                 model="text-embedding-ada-002", input=text
@@ -82,13 +86,13 @@ class RagPipeLine:
                 logger.warning("No content with embeddings found for filters")
                 return self._fallback_search(query, grade_filter, topic_filter)
 
+            # Try pgvector first, then fallback to manual search
             try:
-                results = self._pgvector_search(query_embedding, queryset, top_k)
+                results = self._pg_vector_search(query_embedding, queryset, top_k)
                 logger.info(
                     f"pgvector search completed in {time.time() - start_time:.3f}s"
                 )
                 return results
-
             except Exception as e:
                 logger.warning(
                     f"pgvector search failed: {e}, falling back to manual search"
@@ -105,86 +109,130 @@ class RagPipeLine:
             logger.error(f"Error in semantic search: {e}")
             return self._fallback_search(query, grade_filter, topic_filter)
 
-    def _pg_vector(self, query_embedding, queryset, top_k):
-        """Use pgvector for similarity search with VectorField"""
+    def _pg_vector_search(self, query_embedding, queryset, top_k):
+        """Use pgvector for similarity search with proper vector casting"""
         with connection.cursor() as cursor:
+            # Convert numpy array to list for PostgreSQL
             query_vector = query_embedding.tolist()
-
-            # Get IDs from queryset
             content_ids = list(queryset.values_list("id", flat=True))
 
             if not content_ids:
                 return []
 
+            # Get table names
+            table_name = Content._meta.db_table
+            topic_table_name = Content._meta.get_field(
+                "topic"
+            ).related_model._meta.db_table
+
+            # Create placeholders for IN clause
             placeholders = ",".join(["%s"] * len(content_ids))
+
+            # Fixed SQL query with proper vector casting
             sql = f"""
-            SELECT c.id, c.title, t.name as topic_name, c.grade, c.content_text, 
-                   c.subtopic, c.content_type, c.difficulty_level,
-                   c.embedding <-> %s as distance
-            FROM content_content c
-            JOIN content_topic t ON c.topic_id = t.id
-            WHERE c.id IN ({placeholders}) AND c.embedding IS NOT NULL
-            ORDER BY distance ASC LIMIT %s
+                SELECT c.id, c.title, t.name as topic_name, c.grade, c.content_text, 
+                       c.subtopic, c.content_type, c.difficulty_level,
+                       c.embedding <-> %s::vector as distance
+                FROM {table_name} c
+                JOIN {topic_table_name} t ON c.topic_id = t.id
+                WHERE c.id IN ({placeholders}) AND c.embedding IS NOT NULL
+                ORDER BY distance ASC 
+                LIMIT %s
             """
 
-            params = [query_vector] + content_ids + [top_k]
-            cursor.execute(sql, params)
-            results = cursor.fetchall()
+            # Prepare parameters: query_vector as JSON string, then content_ids, then top_k
+            params = [json.dumps(query_vector)] + content_ids + [top_k]
 
-            return [
-                {
-                    "id": row[0],
-                    "title": row[1],
-                    "topic": row[2],
-                    "grade": row[3],
-                    "content": row[4],
-                    "subtopic": row[5],
-                    "content_type": row[6],
-                    "difficulty_level": row[7],
-                    "similarity": max(0, 1 - row[8]),  # Convert distance to similarity
-                }
-                for row in results
-            ]
+            try:
+                cursor.execute(sql, params)
+                results = cursor.fetchall()
+
+                formatted_results = []
+                for row in results:
+                    formatted_results.append({
+                        "id": str(row[0]),  # Convert UUID to string
+                        "title": row[1],
+                        "topic": row[2],
+                        "grade": row[3],
+                        "content": row[4],
+                        "subtopic": row[5],
+                        "content_type": row[6],
+                        "difficulty_level": row[7],
+                        "similarity": max(0, 1 - float(row[8])),  # Convert distance to similarity
+                    })
+                
+                return formatted_results
+            except Exception as e:
+                logger.error(f"pgvector query execution failed: {e}")
+                # Re-raise to trigger fallback
+                raise
 
     def _manual_similarity_search(self, query_embedding, queryset, top_k):
-        """Manual cosine similarity calculation for VectorField"""
+        """Manual cosine similarity calculation with proper error handling"""
         results = []
+
+        # Convert query embedding to ensure it's a numpy array
+        query_embedding = np.array(query_embedding)
 
         for content in queryset:
             try:
-                if content.embedding:
-                    # Handle different embedding storage formats
-                    if hasattr(content.embedding, "tolist"):
-                        content_embedding = np.array(content.embedding.tolist())
-                    elif isinstance(content.embedding, (list, tuple)):
-                        content_embedding = np.array(content.embedding)
-                    else:
-                        content_embedding = np.array(content.embedding)
+                if not content.embedding:
+                    continue
 
-                    # Ensure both embeddings have the same dimensions
-                    if len(content_embedding) != len(query_embedding):
-                        logger.warning(
-                            f"Embedding dimension mismatch for content {content.id}"
-                        )
-                        continue
+                # Handle different embedding storage formats
+                content_embedding = self._normalize_embedding(content.embedding)
 
+                if content_embedding is None:
+                    logger.warning(
+                        f"Could not normalize embedding for content {content.id}"
+                    )
+                    continue
+
+                # Ensure both embeddings have the same dimensions
+                if len(content_embedding) != len(query_embedding):
+                    logger.warning(
+                        f"Embedding dimension mismatch for content {content.id}: "
+                        f"content={len(content_embedding)}, query={len(query_embedding)}"
+                    )
+                    continue
+
+                # Calculate cosine similarity - fix the array handling issue
+                try:
                     similarity = cosine_similarity(
                         query_embedding.reshape(1, -1), content_embedding.reshape(1, -1)
                     )[0][0]
 
-                    results.append(
-                        {
-                            "id": content.id,
-                            "title": content.title,
-                            "topic": content.topic.name,
-                            "grade": content.grade,
-                            "content": content.content_text,
-                            "subtopic": content.subtopic,
-                            "content_type": content.content_type,
-                            "difficulty_level": content.difficulty_level,
-                            "similarity": float(similarity),
-                        }
+                    # Ensure similarity is a scalar value
+                    if np.isscalar(similarity):
+                        similarity_score = float(similarity)
+                    else:
+                        # If it's still an array, take the first element
+                        similarity_score = float(
+                            similarity.item()
+                            if hasattr(similarity, "item")
+                            else similarity[0]
+                        )
+
+                except Exception as sim_error:
+                    logger.error(
+                        f"Similarity calculation failed for content {content.id}: {sim_error}"
                     )
+                    continue
+
+                results.append(
+                    {
+                        "id": str(content.id),  # Convert UUID to string
+                        "title": content.title,
+                        "topic": content.topic.name,
+                        "grade": content.grade,
+                        "content": content.content_text,
+                        "subtopic": content.subtopic,
+                        "content_type": content.content_type,
+                        "difficulty_level": content.difficulty_level,
+                        "similarity": similarity_score,
+                    }
+                )
+
             except Exception as e:
                 logger.error(f"Error processing content {content.id}: {e}")
                 continue
@@ -192,6 +240,33 @@ class RagPipeLine:
         # Sort by similarity and return top_k
         results.sort(key=lambda x: x["similarity"], reverse=True)
         return results[:top_k]
+
+    def _normalize_embedding(self, embedding):
+        """Normalize embedding to numpy array with better error handling"""
+        try:
+            # Handle Django VectorField - check if it has a specific method
+            if hasattr(embedding, "tolist"):
+                return np.array(embedding.tolist())
+            elif hasattr(embedding, "__iter__") and not isinstance(embedding, str):
+                # Handle list, tuple, or other iterables
+                return np.array(list(embedding))
+            elif isinstance(embedding, np.ndarray):
+                return embedding
+            elif isinstance(embedding, str):
+                # Handle JSON string
+                try:
+                    return np.array(json.loads(embedding))
+                except json.JSONDecodeError:
+                    logger.error(
+                        f"Invalid JSON in embedding string: {embedding[:100]}..."
+                    )
+                    return None
+            else:
+                logger.warning(f"Unknown embedding type: {type(embedding)}")
+                return None
+        except Exception as e:
+            logger.error(f"Error normalizing embedding: {e}")
+            return None
 
     def _fallback_search(self, query, grade_filter, topic_filter):
         """Fallback to keyword search when embeddings fail"""
@@ -223,7 +298,7 @@ class RagPipeLine:
             for content in queryset[:5]:  # Limit to top 5
                 results.append(
                     {
-                        "id": content.id,
+                        "id": str(content.id),  # Convert UUID to string
                         "title": content.title,
                         "topic": content.topic.name,
                         "grade": content.grade,
@@ -242,23 +317,81 @@ class RagPipeLine:
             logger.error(f"Fallback search failed: {e}")
             return []
 
+    def _extract_specific_answer(self, question, content_text):
+        """Extract specific answer from Q&A formatted content"""
+        try:
+            # Look for Q&A patterns in the content
+            qa_patterns = [
+                r"Q:\s*(.+?)\s*\n\s*A:\s*(.+?)(?=\n\s*(?:Q:|---)|\Z)",
+                r"Question:\s*(.+?)\s*\n\s*Answer:\s*(.+?)(?=\n\s*(?:Question:|---)|\Z)",
+                r"Q\d+[.)]\s*(.+?)\s*\n\s*A\d+[.)]\s*(.+?)(?=\n\s*(?:Q\d+|---)|\Z)",
+            ]
+            
+            question_lower = question.lower().strip()
+            
+            for pattern in qa_patterns:
+                matches = re.findall(pattern, content_text, re.MULTILINE | re.DOTALL)
+                
+                for q_match, a_match in matches:
+                    q_clean = q_match.strip().lower()
+                    a_clean = a_match.strip()
+                    
+                    # Check if this Q&A pair matches the user's question
+                    if self._is_question_match(question_lower, q_clean):
+                        return a_clean
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error extracting specific answer: {e}")
+            return None
+
+    def _is_question_match(self, user_question, content_question):
+        """Check if user question matches content question"""
+        # Remove common question words and punctuation
+        common_words = {'what', 'is', 'the', 'how', 'do', 'you', 'can', 'will', 'are', 'a', 'an'}
+        
+        def clean_question(q):
+            q = re.sub(r'[^\w\s]', '', q.lower())
+            words = q.split()
+            return ' '.join([w for w in words if w not in common_words])
+        
+        user_clean = clean_question(user_question)
+        content_clean = clean_question(content_question)
+        
+        # Check for exact match or high similarity
+        if user_clean in content_clean or content_clean in user_clean:
+            return True
+        
+        # Check for key terms match
+        user_words = set(user_clean.split())
+        content_words = set(content_clean.split())
+        
+        if user_words and content_words:
+            overlap = len(user_words.intersection(content_words))
+            return overlap / len(user_words) > 0.6
+        
+        return False
+
     def generate_answer(
         self, question, persona_name="friendly", grade_filter=None, topic_filter=None
     ):
-        """Generate answer using RAG pipeline with comprehensive logging"""
+        """Generate answer using RAG pipeline with improved content extraction"""
         start_time = time.time()
 
         try:
             logger.info(f"Generating answer for question: {question[:100]}...")
 
+            # Content statistics
             total_content = Content.objects.count()
             active_content = Content.objects.filter(is_active=True).count()
-
             content_with_embeddings = Content.objects.filter(
                 embedding__isnull=False, is_active=True, is_processed=True
             ).count()
+
             logger.info(
-                f"Content stats - Total: {total_content}, Active: {active_content}, With embeddings: {content_with_embeddings}"
+                f"Content stats - Total: {total_content}, Active: {active_content}, "
+                f"With embeddings: {content_with_embeddings}"
             )
 
             # Get or create persona
@@ -284,16 +417,36 @@ class RagPipeLine:
                     "method": "general_knowledge",
                 }
 
-            # Prepare context from retrieved content
-            context = self._prepare_context(relevant_content)
+            # Try to extract specific answer from the most relevant content
+            best_content = relevant_content[0]
+            extracted_answer = self._extract_specific_answer(question, best_content['content'])
+            
+            if extracted_answer and best_content['similarity'] > 0.4:
+                # If we found a specific answer with good similarity, use it
+                logger.info("Using extracted specific answer from knowledge base")
+                
+                # Format the extracted answer with persona style
+                formatted_answer = self._format_extracted_answer(
+                    extracted_answer, persona.system_prompt, question
+                )
+                
+                confidence = float(best_content['similarity'])
+                processing_time = time.time() - start_time
 
-            # Generate answer using LLM
+                return {
+                    "answer": formatted_answer,
+                    "sources": relevant_content[:3],
+                    "confidence": confidence,
+                    "processing_time": processing_time,
+                    "method": "direct_extraction",
+                }
+
+            # Fallback to LLM generation with context
+            context = self._prepare_context(relevant_content)
             answer = self._call_llm(question, context, persona.system_prompt)
 
             # Calculate confidence based on similarity scores
-            confidence = np.mean(
-                [content["similarity"] for content in relevant_content]
-            )
+            confidence = np.mean([content["similarity"] for content in relevant_content])
             processing_time = time.time() - start_time
 
             # Update persona usage count
@@ -319,6 +472,23 @@ class RagPipeLine:
                 "processing_time": processing_time,
                 "method": "error_fallback",
             }
+
+    def _format_extracted_answer(self, extracted_answer, system_prompt, question):
+        """Format extracted answer with persona style"""
+        try:
+            # Simple formatting based on persona
+            if "friendly" in system_prompt.lower():
+                return f"{extracted_answer}\n\nI hope this helps! Feel free to ask if you need any clarification."
+            elif "encouraging" in system_prompt.lower():
+                return f"{extracted_answer}\n\nGreat question! You're doing well by asking about this concept."
+            elif "strict" in system_prompt.lower():
+                return f"{extracted_answer}\n\nMake sure you understand this formula thoroughly."
+            else:
+                return extracted_answer
+                
+        except Exception as e:
+            logger.error(f"Error formatting extracted answer: {e}")
+            return extracted_answer
 
     def _get_or_create_persona(self, persona_name):
         """Get or create persona with proper defaults"""
@@ -379,42 +549,41 @@ class RagPipeLine:
 
         for i, content in enumerate(relevant_content, 1):
             context_part = f"""
-                            Source {i}: {content['title']}
-                            - Grade Level: {content['grade']}
-                            - Topic: {content['topic']}
-                            - Subtopic: {content.get('subtopic', 'N/A')}
-                            - Content Type: {content.get('content_type', 'N/A')}
-                            - Difficulty: {content.get('difficulty_level', 'N/A')}
-                            - Relevance Score: {content['similarity']:.2f}
+            Source {i}: {content['title']}
+            - Grade Level: {content['grade']}
+            - Topic: {content['topic']}
+            - Subtopic: {content.get('subtopic', 'N/A')}
+            - Content Type: {content.get('content_type', 'N/A')}
+            - Difficulty: {content.get('difficulty_level', 'N/A')}
+            - Relevance Score: {content['similarity']:.2f}
 
-                            Content:
-                            {content['content'][:1500]}...
-
-        """
+            Content:
+            {content['content'][:1500]}...
+            """
             context_parts.append(context_part)
-
+        
         return "\n".join(context_parts)
 
     def _call_llm(self, question, context, system_prompt):
-        """Call OpenAI API to generate answer with improved prompting"""
+        """Call OpenAI API to generate answer with improved prompting for exact extraction"""
         try:
             full_prompt = f"""
             {system_prompt}
             
-            You are helping a student with their educational question. Use the following context from educational materials to provide a helpful, accurate, and engaging answer.
+            You are helping a student with their educational question. The context below contains educational materials that may have the EXACT answer to the student's question.
             
             CONTEXT FROM EDUCATIONAL MATERIALS:
             {context}
             
             STUDENT'S QUESTION: {question}
             
-            INSTRUCTIONS:
-            1. Provide a clear, educational response that directly answers the student's question
-            2. Use information from the context materials when relevant
-            3. Explain concepts in a way appropriate for the student's level
-            4. Be encouraging and supportive
-            5. If the context doesn't fully answer the question, acknowledge this and provide what help you can
-            6. Keep your response focused and not too lengthy
+            CRITICAL INSTRUCTIONS:
+            1. First, look for EXACT matches between the student's question and any Q&A pairs in the context
+            2. If you find an exact or very similar question in the context, use that exact answer
+            3. If the context contains "Q: [question very similar to student's question]" followed by "A: [answer]", use that answer directly
+            4. Only if no exact match is found, then provide a general educational response
+            5. Be encouraging and supportive in your tone
+            6. Keep your response focused and appropriate for the student's level
             
             Your response:
             """
@@ -424,88 +593,68 @@ class RagPipeLine:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are an educational tutor who provides clear, helpful explanations.",
+                        "content": "You are an educational tutor who prioritizes using exact answers from educational materials when available.",
                     },
                     {"role": "user", "content": full_prompt},
                 ],
                 max_tokens=600,
-                temperature=0.7,
+                temperature=0.3,  # Lower temperature for more consistent extraction
                 top_p=0.9,
             )
-
+            
             return response.choices[0].message.content.strip()
 
         except Exception as e:
             logger.error(f"Error calling LLM: {e}")
             return "I apologize, but I'm having trouble generating a response right now. Please try again later or rephrase your question."
 
-    
-    
-    
-    def create_retrieval_logs(self, question_answer, sources):
-        """Create content retrieval logs for analytics"""
-        try:
-            for rank, source in enumerate(sources, 1):
-                try:
-                    content = Content.objects.get(id=source['id'])
-                    ContentRetrievalLog.objects.create(
-                        question_answer=question_answer,
-                        content=content,
-                        similarity_score=source.get('similarity', 0.0),
-                        rank=rank
-                    )
-                    
-                    # Update content retrieval count and last accessed
-                    content.retrieval_count = models.F('retrieval_count') + 1
-                    content.last_accessed = timezone.now()
-                    content.save(update_fields=['retrieval_count', 'last_accessed'])
-                    
-                except Content.DoesNotExist:
-                    logger.warning(f"Content with id {source['id']} not found for retrieval log")
-                    continue
-                    
-        except Exception as e:
-            logger.error(f"Error creating retrieval logs: {e}")
-    
     def validate_embedding_consistency(self):
         """Validate embedding consistency across the database"""
         try:
             content_with_embeddings = Content.objects.filter(
-                embedding__isnull=False,
-                is_active=True
+                embedding__isnull=False, is_active=True
             )
-            
+
             dimension_counts = {}
             invalid_embeddings = []
-            
+
             for content in content_with_embeddings:
                 try:
-                    if hasattr(content.embedding, 'tolist'):
-                        embedding_array = np.array(content.embedding.tolist())
-                    else:
-                        embedding_array = np.array(content.embedding)
-                    
+                    embedding_array = self._normalize_embedding(content.embedding)
+
+                    if embedding_array is None:
+                        invalid_embeddings.append(content.id)
+                        continue
+
                     dimension = len(embedding_array)
                     dimension_counts[dimension] = dimension_counts.get(dimension, 0) + 1
-                    
+
                     # Check for invalid values
-                    if np.any(np.isnan(embedding_array)) or np.any(np.isinf(embedding_array)):
+                    if np.any(np.isnan(embedding_array)) or np.any(
+                        np.isinf(embedding_array)
+                    ):
                         invalid_embeddings.append(content.id)
-                        
+
                 except Exception as e:
-                    logger.error(f"Error validating embedding for content {content.id}: {e}")
+                    logger.error(
+                        f"Error validating embedding for content {content.id}: {e}"
+                    )
                     invalid_embeddings.append(content.id)
-            
-            logger.info(f"Embedding validation complete. Dimensions: {dimension_counts}")
+
+            logger.info(
+                f"Embedding validation complete. Dimensions: {dimension_counts}"
+            )
             if invalid_embeddings:
-                logger.warning(f"Invalid embeddings found for content IDs: {invalid_embeddings}")
-            
+                logger.warning(
+                    f"Invalid embeddings found for content IDs: {invalid_embeddings}"
+                )
+
             return {
-                'total_embeddings': content_with_embeddings.count(),
-                'dimension_counts': dimension_counts,
-                'invalid_embeddings': invalid_embeddings
+                "total_embeddings": content_with_embeddings.count(),
+                "dimension_counts": dimension_counts,
+                "invalid_embeddings": invalid_embeddings,
             }
-            
+
         except Exception as e:
             logger.error(f"Error validating embeddings: {e}")
             return None
