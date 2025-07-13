@@ -22,6 +22,7 @@ class RagPipeLine:
     def __init__(self):
         openai.api_key = settings.OPENAI_API_KEY
         self.embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+        self.confidence_threshold = 0.3  # Threshold for using OpenAI fallback
         self.default_personas = {
             "friendly": "You are a friendly and encouraging tutor who makes learning fun and accessible. Use simple language and positive reinforcement.",
             "strict": "You are a strict but fair tutor who emphasizes discipline and accuracy. Be precise and expect high standards.",
@@ -373,10 +374,81 @@ class RagPipeLine:
         
         return False
 
+    def _use_openai_fallback(self, question, persona_name, grade_filter=None, topic_filter=None):
+        """Use OpenAI as fallback when knowledge base doesn't have good answers"""
+        try:
+            logger.info(f"Using OpenAI fallback for question: {question[:100]}...")
+            
+            # Get persona
+            persona = self._get_or_create_persona(persona_name)
+            
+            # Build context-aware prompt
+            context_info = ""
+            if grade_filter:
+                context_info += f"Grade level: {grade_filter}\n"
+            if topic_filter:
+                context_info += f"Topic: {topic_filter}\n"
+            
+            prompt = f"""
+            {persona.system_prompt}
+            
+            {context_info}
+            
+            A student asked: "{question}"
+            
+            I don't have specific educational materials about this topic in my knowledge base, 
+            but I can still provide a helpful educational response. Please provide a comprehensive, 
+            accurate answer based on your knowledge.
+            
+            Guidelines:
+            1. Provide accurate, educational information
+            2. Make it appropriate for the grade level if specified
+            3. Be encouraging and supportive
+            4. If it's a complex topic, break it down into simpler parts
+            5. Include examples when helpful
+            6. If you're not certain about something, say so
+            
+            Please provide your response:
+            """
+
+            response = openai.chat.completions.create(
+                model="gpt-4o-mini",  # Using a more capable model for fallback
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a knowledgeable educational tutor who provides accurate, helpful information.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=800,
+                temperature=0.7,
+            )
+
+            answer = response.choices[0].message.content.strip()
+            
+            # Add a note that this came from general knowledge
+            answer += "\n\nNote: This answer is based on general knowledge as I don't have specific materials about this topic in my knowledge base."
+            
+            return {
+                "answer": answer,
+                "sources": [],
+                "confidence": 0.3,  # Lower confidence for OpenAI fallback
+                "method": "openai_fallback",
+            }
+
+        except Exception as e:
+            logger.error(f"Error in OpenAI fallback: {e}")
+            return {
+                "answer": "I apologize, but I'm having trouble processing your question right now. Please try again later or rephrase your question.",
+                "sources": [],
+                "confidence": 0.0,
+                "method": "error_fallback",
+            }
+
     def generate_answer(
         self, question, persona_name="friendly", grade_filter=None, topic_filter=None
     ):
-        """Generate answer using RAG pipeline with improved content extraction"""
+        """Generate answer using RAG pipeline with OpenAI fallback"""
         start_time = time.time()
 
         try:
@@ -404,24 +476,30 @@ class RagPipeLine:
 
             logger.info(f"Found {len(relevant_content)} relevant pieces of content")
 
+            # Check if we should use OpenAI fallback
+            should_use_fallback = False
+            
             if not relevant_content:
-                # If no content found, provide a more helpful response
-                answer = self._generate_general_answer(question, persona.system_prompt)
-                processing_time = time.time() - start_time
+                logger.info("No relevant content found, using OpenAI fallback")
+                should_use_fallback = True
+            else:
+                # Check confidence of best match
+                best_similarity = max([content["similarity"] for content in relevant_content])
+                if best_similarity < self.confidence_threshold:
+                    logger.info(f"Best similarity {best_similarity} below threshold {self.confidence_threshold}, using OpenAI fallback")
+                    should_use_fallback = True
 
-                return {
-                    "answer": answer,
-                    "sources": [],
-                    "confidence": 0.0,
-                    "processing_time": processing_time,
-                    "method": "general_knowledge",
-                }
+            # Use OpenAI fallback if needed
+            if should_use_fallback:
+                result = self._use_openai_fallback(question, persona_name, grade_filter, topic_filter)
+                result["processing_time"] = time.time() - start_time
+                return result
 
             # Try to extract specific answer from the most relevant content
             best_content = relevant_content[0]
             extracted_answer = self._extract_specific_answer(question, best_content['content'])
             
-            if extracted_answer and best_content['similarity'] > 0.4:
+            if extracted_answer and best_content['similarity'] > self.confidence_threshold:
                 # If we found a specific answer with good similarity, use it
                 logger.info("Using extracted specific answer from knowledge base")
                 
@@ -441,25 +519,28 @@ class RagPipeLine:
                     "method": "direct_extraction",
                 }
 
-            # Fallback to LLM generation with context
-            context = self._prepare_context(relevant_content)
-            answer = self._call_llm(question, context, persona.system_prompt)
+            # Use LLM generation with context if confidence is good enough
+            if best_content['similarity'] >= self.confidence_threshold:
+                context = self._prepare_context(relevant_content)
+                answer = self._call_llm(question, context, persona.system_prompt)
 
-            # Calculate confidence based on similarity scores
-            confidence = np.mean([content["similarity"] for content in relevant_content])
-            processing_time = time.time() - start_time
+                # Calculate confidence based on similarity scores
+                confidence = np.mean([content["similarity"] for content in relevant_content])
+                processing_time = time.time() - start_time
 
-            # Update persona usage count
-            persona.usage_count = models.F("usage_count") + 1
-            persona.save(update_fields=["usage_count"])
-
-            return {
-                "answer": answer,
-                "sources": relevant_content[:3],  # Top 3 sources
-                "confidence": float(confidence),
-                "processing_time": processing_time,
-                "method": "rag_pipeline",
-            }
+                return {
+                    "answer": answer,
+                    "sources": relevant_content[:3],  # Top 3 sources
+                    "confidence": float(confidence),
+                    "processing_time": processing_time,
+                    "method": "rag_pipeline",
+                }
+            else:
+                # Fallback to OpenAI if confidence is still too low
+                logger.info("RAG confidence still too low, using OpenAI fallback")
+                result = self._use_openai_fallback(question, persona_name, grade_filter, topic_filter)
+                result["processing_time"] = time.time() - start_time
+                return result
 
         except Exception as e:
             logger.error(f"Error generating answer: {e}")
@@ -509,40 +590,6 @@ class RagPipeLine:
             logger.info(f"Created new persona: {persona_name}")
             return persona
 
-    def _generate_general_answer(self, question, system_prompt):
-        """Generate a general answer when no specific content is found"""
-        try:
-            prompt = f"""
-            {system_prompt}
-            
-            A student asked: "{question}"
-            
-            You don't have specific educational materials about this topic in your knowledge base, 
-            but you can still provide a helpful general response. Provide a brief, educational answer 
-            based on general knowledge and suggest how the student might learn more about this topic.
-            
-            Keep your response educational, encouraging, and helpful.
-            """
-
-            response = openai.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a helpful educational tutor.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=300,
-                temperature=0.7,
-            )
-
-            return response.choices[0].message.content.strip()
-
-        except Exception as e:
-            logger.error(f"Error generating general answer: {e}")
-            return "I don't have specific information about that topic in my knowledge base. Could you provide more context or ask about a different topic? I'm here to help with your learning!"
-
     def _prepare_context(self, relevant_content):
         """Prepare context from relevant content with improved formatting"""
         context_parts = []
@@ -581,7 +628,7 @@ class RagPipeLine:
             1. First, look for EXACT matches between the student's question and any Q&A pairs in the context
             2. If you find an exact or very similar question in the context, use that exact answer
             3. If the context contains "Q: [question very similar to student's question]" followed by "A: [answer]", use that answer directly
-            4. Only if no exact match is found, then provide a general educational response
+            4. Only if no exact match is found, then provide a general educational response based on the context
             5. Be encouraging and supportive in your tone
             6. Keep your response focused and appropriate for the student's level
             
