@@ -3,15 +3,15 @@ import logging
 import time
 from django.views import View
 from django.http import JsonResponse
-
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
+from django.core.paginator import Paginator
 import uuid
 from ai_tutor.models import QuerySession, QuestionAnswer, TutorPersona
-from copying.rag_pipeline import RAGPipeline
-from knowledge_base.models import Content
+from ai_tutor.rag_pipeline import RagPipeLine
+from knowledge_base.models import Content, Topic
 from retrieval.models import ContentRetrievalLog
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class AskQuestionView(BaseApiView):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.rag_pipeline = RAGPipeline()
+        self.rag_pipeline = RagPipeLine()
 
     def post(self, request):
         start_time = time.time()
@@ -73,7 +73,6 @@ class AskQuestionView(BaseApiView):
         try:
             data = self.parse_json_body(request)
             question = data.get("question", "").strip()
-            print(data)
             if not question:
                 return JsonResponse({"error": "Question is required"}, status=400)
 
@@ -89,6 +88,12 @@ class AskQuestionView(BaseApiView):
             topic_filter = data.get("topic")
             session_id = data.get("session_id")
 
+            # Validate grade
+            if grade_filter and not self._is_valid_grade(grade_filter):
+                return JsonResponse({
+                    'error': 'Invalid grade. Must be K, 1-12, college, or general'
+                }, status=400)
+            
             # Get or create persona
             persona = self._get_or_create_persona(persona_name)
             
@@ -149,6 +154,54 @@ class AskQuestionView(BaseApiView):
                 'message': str(e) if logger.isEnabledFor(logging.DEBUG) else None
             }, status=500)  
       
+
+    def _is_valid_grade(self, grade):
+        """Validate grade format"""
+        valid_grades = ['K'] + [str(i) for i in range(1, 13)] + ['college', 'general']
+        return str(grade).upper() in [g.upper() for g in valid_grades]
+    
+    
+    def get(self, request):
+        """Get available options and system status"""
+        try:
+            # Get available personas
+            personas = TutorPersona.objects.filter(is_active=True)
+            
+            # Get available topics and grades
+            topics = Topic.objects.filter(is_active=True).values('id', 'name', 'description')
+            grades = Content.objects.values_list('grade', flat=True).distinct()
+            
+            # System status
+            content_stats = {
+                'total_content': Content.objects.count(),
+                'content_with_embeddings': Content.objects.filter(embedding__isnull=False).count(),
+                'active_content': Content.objects.filter(is_active=True).count()
+            }
+            
+            return JsonResponse({
+                'available_personas': [
+                    {
+                        'name': persona.name,
+                        'display_name': persona.display_name,
+                        'description': persona.description,
+                        'usage_count': persona.usage_count
+                    }
+                    for persona in personas
+                ],
+                'available_topics': list(topics),
+                'available_grades': sorted([g for g in grades if g]),
+                'system_status': content_stats,
+                'usage_guidelines': {
+                    'max_question_length': 1000,
+                    'supported_methods': ['POST', 'GET'],
+                    'required_fields': ['question'],
+                    'optional_fields': ['persona', 'grade', 'topic', 'session_id']
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in AskQuestionView GET: {str(e)}")
+            return JsonResponse({'error': 'Failed to load options'}, status=500)
 
     def _get_or_create_persona(self, persona_name):
         """Get or create persona with defaults"""
@@ -262,3 +315,500 @@ class AskQuestionView(BaseApiView):
         if len(text) <= max_length:
             return text
         return text[:max_length].rsplit(' ', 1)[0] + '...'        
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+from django.db import models
+
+class AnalyticsView(BaseApiView):
+    """Advanced analytics and reporting for the tutoring system"""
+    
+    def get(self, request):
+        try:
+            # Get time range parameters
+            days = int(request.GET.get('days', 30))
+            start_date = timezone.now() - timezone.timedelta(days=days)
+            
+            # Usage trends over time
+            usage_trends = list(
+                QuestionAnswer.objects.filter(created_at__gte=start_date)
+                .extra(select={'date': 'date(created_at)'})
+                .values('date')
+                .annotate(count=models.Count('id'))
+                .order_by('date')
+            )
+            
+            # Rating distribution
+            rating_distribution = list(
+                QuestionAnswer.objects.filter(
+                    rating__isnull=False,
+                    created_at__gte=start_date
+                )
+                .values('rating')
+                .annotate(count=models.Count('id'))
+                .order_by('rating')
+            )
+            
+            # Topic performance
+            topic_performance = list(
+                QuestionAnswer.objects.filter(created_at__gte=start_date)
+                .values('retrieved_content')
+                .annotate(
+                    count=models.Count('id'),
+                    avg_rating=models.Avg('rating'),
+                    avg_confidence=models.Avg('confidence_score'),
+                    avg_processing_time=models.Avg('processing_time')
+                )
+                .order_by('-count')[:10]
+            )
+            
+            # Persona effectiveness
+            persona_effectiveness = list(
+                QuestionAnswer.objects.filter(created_at__gte=start_date)
+                .values('persona__name', 'persona__display_name')
+                .annotate(
+                    questions_answered=models.Count('id'),
+                    avg_rating=models.Avg('rating'),
+                    avg_confidence=models.Avg('confidence_score'),
+                    avg_processing_time=models.Avg('processing_time')
+                )
+                .order_by('-questions_answered')
+            )
+            
+            # Content retrieval patterns
+            content_retrieval = list(
+                ContentRetrievalLog.objects.filter(created_at__gte=start_date)
+                .values('content__title', 'content__topic__name', 'content__grade')
+                .annotate(
+                    retrieval_count=models.Count('id'),
+                    avg_similarity=models.Avg('similarity_score'),
+                    avg_rank=models.Avg('rank')
+                )
+                .order_by('-retrieval_count')[:15]
+            )
+            
+            # Grade-level distribution
+            grade_distribution = list(
+                QuestionAnswer.objects.filter(created_at__gte=start_date)
+                .values('retrieved_content')
+                .annotate(count=models.Count('id'))
+                .order_by('retrieved_content')
+            )
+            
+            # Session analytics
+            session_analytics = {
+                'total_sessions': QuerySession.objects.filter(started_at__gte=start_date).count(),
+                'avg_questions_per_session': QuestionAnswer.objects.filter(
+                    created_at__gte=start_date
+                ).count() / max(QuerySession.objects.filter(started_at__gte=start_date).count(), 1),
+                'bounce_rate': self._calculate_bounce_rate(start_date),
+                'repeat_users': self._calculate_repeat_users(start_date)
+            }
+            
+            return JsonResponse({
+                'time_range': {
+                    'days': days,
+                    'start_date': start_date.isoformat(),
+                    'end_date': timezone.now().isoformat()
+                },
+                'usage_trends': usage_trends,
+                'rating_distribution': rating_distribution,
+                'topic_performance': topic_performance,
+                'persona_effectiveness': persona_effectiveness,
+                'content_retrieval_patterns': content_retrieval,
+                'grade_distribution': grade_distribution,
+                'session_analytics': session_analytics,
+                'summary_stats': {
+                    'total_questions': QuestionAnswer.objects.filter(created_at__gte=start_date).count(),
+                    'unique_users': QuerySession.objects.filter(started_at__gte=start_date).values('user_ip').distinct().count(),
+                    'avg_satisfaction': QuestionAnswer.objects.filter(
+                        created_at__gte=start_date,
+                        rating__isnull=False
+                    ).aggregate(avg=models.Avg('rating'))['avg'] or 0.0,
+                    'content_coverage': self._calculate_content_coverage(start_date)
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in AnalyticsView: {str(e)}")
+            return JsonResponse({'error': 'Failed to load analytics'}, status=500)
+    
+    def _calculate_bounce_rate(self, start_date):
+        """Calculate bounce rate (sessions with only one question)"""
+        try:
+            total_sessions = QuerySession.objects.filter(started_at__gte=start_date).count()
+            single_question_sessions = QuerySession.objects.filter(
+                started_at__gte=start_date,
+                total_queries=1
+            ).count()
+            
+            if total_sessions > 0:
+                return round((single_question_sessions / total_sessions) * 100, 2)
+            return 0
+        except Exception as e:
+            logger.error(f"Error calculating bounce rate: {e}")
+            return 0
+    
+    def _calculate_repeat_users(self, start_date):
+        """Calculate percentage of repeat users"""
+        try:
+            total_users = QuerySession.objects.filter(started_at__gte=start_date).values('user_ip').distinct().count()
+            repeat_users = QuerySession.objects.filter(
+                started_at__gte=start_date
+            ).values('user_ip').annotate(
+                session_count=models.Count('id')
+            ).filter(session_count__gt=1).count()
+            
+            if total_users > 0:
+                return round((repeat_users / total_users) * 100, 2)
+            return 0
+        except Exception as e:
+            logger.error(f"Error calculating repeat users: {e}")
+            return 0
+    
+    def _calculate_content_coverage(self, start_date):
+        """Calculate what percentage of content was accessed"""
+        try:
+            total_content = Content.objects.filter(is_active=True).count()
+            accessed_content = ContentRetrievalLog.objects.filter(
+                created_at__gte=start_date
+            ).values('content').distinct().count()
+            
+            if total_content > 0:
+                return round((accessed_content / total_content) * 100, 2)
+            return 0
+        except Exception as e:
+            logger.error(f"Error calculating content coverage: {e}")
+            return 0
+    
+    
+    
+    
+
+
+class QuestionHistoryView(BaseApiView):
+    """Get question history with advanced filtering"""
+    
+    def get(self, request):
+        try:
+            # Get pagination parameters
+            page, page_size = self.validate_pagination_params(request)
+            
+            # Get filter parameters
+            persona_filter = request.GET.get('persona')
+            rating_filter = request.GET.get('rating')
+            session_id = request.GET.get('session_id')
+            
+            # Build queryset
+            queryset = QuestionAnswer.objects.select_related('persona', 'session')
+            
+            # Apply filters
+            if persona_filter:
+                queryset = queryset.filter(persona__name=persona_filter)
+            
+            if rating_filter:
+                try:
+                    rating = int(rating_filter)
+                    queryset = queryset.filter(rating=rating)
+                except ValueError:
+                    pass
+            
+            if session_id:
+                queryset = queryset.filter(session__session_id=session_id)
+            
+            # Pagination
+            paginator = Paginator(queryset.order_by('-created_at'), page_size)
+            page_obj = paginator.get_page(page)
+            
+            # Serialize data
+            questions = [
+                {
+                    'id': str(qa.id),
+                    'question': qa.question,
+                    'answer': self._truncate_text(qa.answer, 200),
+                    'persona': qa.persona.name,
+                    'rating': qa.rating,
+                    'confidence_score': qa.confidence_score,
+                    'processing_time': qa.processing_time,
+                    'sources_count': len(qa.retrieved_content),
+                    'created_at': qa.created_at.isoformat(),
+                    'session_id': str(qa.session.session_id) if qa.session else None
+                }
+                for qa in page_obj
+            ]
+            
+            return JsonResponse({
+                'questions': questions,
+                'pagination': {
+                    'page': page,
+                    'page_size': page_size,
+                    'total_count': paginator.count,
+                    'total_pages': paginator.num_pages,
+                    'has_next': page_obj.has_next(),
+                    'has_previous': page_obj.has_previous()
+                },
+                'filters': {
+                    'persona': persona_filter,
+                    'rating': rating_filter,
+                    'session_id': session_id
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in QuestionHistoryView: {str(e)}")
+            return JsonResponse({'error': 'Failed to load question history'}, status=500)
+    
+    def _truncate_text(self, text, max_length):
+        """Truncate text with ellipsis"""
+        if len(text) <= max_length:
+            return text
+        return text[:max_length].rsplit(' ', 1)[0] + '...'
+
+    
+
+@method_decorator(csrf_exempt, name='dispatch')
+class RateAnswerView(BaseApiView):
+    """Rate and provide feedback on answers"""
+    
+    def post(self, request):
+        try:
+            data = self.parse_json_body(request)
+            qa_id = data.get('qa_id')
+            rating = data.get('rating')
+            feedback = data.get('feedback', '').strip()
+            
+            # Validate rating
+            if not isinstance(rating, int) or rating < 1 or rating > 5:
+                return JsonResponse({
+                    'error': 'Rating must be an integer between 1 and 5'
+                }, status=400)
+            
+            # Get and update QuestionAnswer
+            qa = get_object_or_404(QuestionAnswer, id=qa_id)
+            qa.rating = rating
+            qa.feedback = feedback
+            qa.save(update_fields=['rating', 'feedback'])
+            
+            # Update persona average rating
+            persona = qa.persona
+            avg_rating = QuestionAnswer.objects.filter(
+                persona=persona,
+                rating__isnull=False
+            ).aggregate(avg=models.Avg('rating'))['avg']
+            
+            persona.average_rating = avg_rating or 0.0
+            persona.save(update_fields=['average_rating'])
+            
+            return JsonResponse({
+                'message': 'Rating saved successfully',
+                'qa_id': qa_id,
+                'rating': rating,
+                'feedback': feedback
+            })
+            
+        except ValueError as e:
+            return JsonResponse({'error': str(e)}, status=400)
+        except Exception as e:
+            logger.error(f"Error in RateAnswerView: {str(e)}")
+            return JsonResponse({'error': 'Failed to save rating'}, status=500)
+    
+    
+    
+    
+
+class ExportDataView(BaseApiView):
+    """Export data for analysis or backup"""
+    
+    def get(self, request):
+        try:
+            export_type = request.GET.get('type', 'questions')
+            format_type = request.GET.get('format', 'json')
+            days = int(request.GET.get('days', 30))
+            
+            start_date = timezone.now() - timezone.timedelta(days=days)
+            
+            if export_type == 'questions':
+                data = self._export_questions(start_date)
+            elif export_type == 'content':
+                data = self._export_content()
+            elif export_type == 'sessions':
+                data = self._export_sessions(start_date)
+            elif export_type == 'analytics':
+                data = self._export_analytics(start_date)
+            else:
+                return JsonResponse({'error': 'Invalid export type'}, status=400)
+            
+            if format_type == 'json':
+                response = JsonResponse(data)
+                response['Content-Disposition'] = f'attachment; filename="{export_type}_export.json"'
+                return response
+            else:
+                return JsonResponse({'error': 'Only JSON format is currently supported'}, status=400)
+                
+        except Exception as e:
+            logger.error(f"Error in ExportDataView: {str(e)}")
+            return JsonResponse({'error': 'Failed to export data'}, status=500)
+    
+    def _export_questions(self, start_date):
+        """Export question-answer data"""
+        questions = QuestionAnswer.objects.filter(
+            created_at__gte=start_date
+        ).select_related('persona', 'session')
+        
+        return {
+            'export_type': 'questions',
+            'exported_at': timezone.now().isoformat(),
+            'count': questions.count(),
+            'data': [
+                {
+                    'id': str(qa.id),
+                    'question': qa.question,
+                    'answer': qa.answer,
+                    'persona': qa.persona.name,
+                    'rating': qa.rating,
+                    'feedback': qa.feedback,
+                    'confidence_score': qa.confidence_score,
+                    'processing_time': qa.processing_time,
+                    'retrieved_count': qa.retrieved_count,
+                    'created_at': qa.created_at.isoformat(),
+                    'session_id': str(qa.session.session_id) if qa.session else None
+                }
+                for qa in questions
+            ]
+        }
+    
+    def _export_content(self):
+        """Export content data"""
+        content = Content.objects.filter(is_active=True).select_related('topic')
+        
+        return {
+            'export_type': 'content',
+            'exported_at': timezone.now().isoformat(),
+            'count': content.count(),
+            'data': [
+                {
+                    'id': str(c.id),
+                    'title': c.title,
+                    'topic': c.topic.name,
+                    'subtopic': c.subtopic,
+                    'grade': c.grade,
+                    'content_type': c.content_type,
+                    'difficulty_level': c.difficulty_level,
+                    'has_embedding': c.embedding is not None,
+                    'view_count': c.view_count,
+                    'retrieval_count': c.retrieval_count,
+                    'file_size': c.file_size,
+                    'created_at': c.created_at.isoformat(),
+                    'updated_at': c.updated_at.isoformat()
+                }
+                for c in content
+            ]
+        }
+    
+    def _export_sessions(self, start_date):
+        """Export session data"""
+        sessions = QuerySession.objects.filter(started_at__gte=start_date).select_related('persona')
+        
+        return {
+            'export_type': 'sessions',
+            'exported_at': timezone.now().isoformat(),
+            'count': sessions.count(),
+            'data': [
+                {
+                    'session_id': str(s.session_id),
+                    'persona': s.persona.name,
+                    'total_queries': s.total_queries,
+                    'user_ip': s.user_ip,
+                    'started_at': s.started_at.isoformat(),
+                    'ended_at': s.ended_at.isoformat() if s.ended_at else None,
+                    'duration_seconds': (s.ended_at - s.started_at).total_seconds() if s.ended_at else None
+                }
+                for s in sessions
+            ]
+        }
+    
+    def _export_analytics(self, start_date):
+        """Export analytics summary"""
+        return {
+            'export_type': 'analytics',
+            'exported_at': timezone.now().isoformat(),
+            'time_range': {
+                'start_date': start_date.isoformat(),
+                'end_date': timezone.now().isoformat()
+            },
+            'summary': {
+                'total_questions': QuestionAnswer.objects.filter(created_at__gte=start_date).count(),
+                'total_sessions': QuerySession.objects.filter(started_at__gte=start_date).count(),
+                'unique_users': QuerySession.objects.filter(started_at__gte=start_date).values('user_ip').distinct().count(),
+                'avg_rating': QuestionAnswer.objects.filter(
+                    created_at__gte=start_date,
+                    rating__isnull=False
+                ).aggregate(avg=models.Avg('rating'))['avg'] or 0.0,
+                'content_accessed': ContentRetrievalLog.objects.filter(
+                    created_at__gte=start_date
+                ).values('content').distinct().count()
+            }
+        }
+            
+            
+            
+            
+
+
+# class GetTopicsView(View):
+#     """Get topics filtered by grade"""
+    
+#     def get(self, request):
+#         grade = request.GET.get('grade')
+        
+#         queryset = Content.objects.values('topic').distinct()
+#         if grade:
+#             queryset = queryset.filter(grade=grade)
+        
+#         topics = [item['topic'] for item in queryset]
+#         return JsonResponse({'topics': topics})
+
+
+
+
+# @method_decorator(csrf_exempt, name='dispatch')
+# class NaturalLanguageQueryView(View):
+#     """Handle natural language database queries"""
+    
+#     def post(self, request):
+#         try:
+#             # Parse JSON body
+#             data = json.loads(request.body)
+#             query = data.get('query')
+#             llm_service = LLMService()
+            
+#             # Convert to SQL
+#             sql_query = llm_service.natural_language_to_sql(query)
+            
+#             # Execute safely (add validation)
+#             from django.db import connection
+#             with connection.cursor() as cursor:
+#                 cursor.execute(sql_query)
+#                 results = cursor.fetchall()
+            
+#             return JsonResponse({
+#                 'query': query,
+#                 'sql_generated': sql_query,
+#                 'results': results
+#             })
+            
+#         except Exception as e:
+#             return JsonResponse({'error': str(e)}, status=400)
+                

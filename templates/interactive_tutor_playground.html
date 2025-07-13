@@ -517,9 +517,9 @@
 
         async function loadMetrics() {
             try {
-                const response = await fetch(`${API_BASE}/metrics`);
+                const response = await fetch(`${API_BASE}/api/metrics`);
                 const data = await response.json();
-
+                console.log(data);
                 const metricsContainer = document.getElementById('metrics');
                 metricsContainer.innerHTML = `
                     <div class="metric-card">
@@ -527,7 +527,7 @@
                         <div class="metric-label">Content Files</div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-value">${data.total_questions_answered || 0}</div>
+                        <div class="metric-value">${data.overview.total_questions_answered || 0}</div>
                         <div class="metric-label">Questions Answered</div>
                     </div>
                     <div class="metric-card">

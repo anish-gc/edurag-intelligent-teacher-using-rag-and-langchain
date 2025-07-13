@@ -9,13 +9,15 @@ from django.db import models
 from ai_tutor.models import TutorPersona
 from knowledge_base.models import Content
 from sklearn.metrics.pairwise import cosine_similarity
+from django.utils import timezone
+from retrieval.models import ContentRetrievalLog
 
 logger = logging.getLogger(__name__)
 
 
 class RagPipeLine:
     def __init__(self):
-        openai.api_key = settings.OPEN_API_KEY
+        openai.api_key = settings.OPENAI_API_KEY
         self.embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
         self.default_personas = {
             "friendly": "You are a friendly and encouraging tutor who makes learning fun and accessible. Use simple language and positive reinforcement.",
@@ -248,10 +250,8 @@ class RagPipeLine:
 
         try:
             logger.info(f"Generating answer for question: {question[:100]}...")
-            print("fucke")
 
             total_content = Content.objects.count()
-            print(total_content)
             active_content = Content.objects.filter(is_active=True).count()
 
             content_with_embeddings = Content.objects.filter(
@@ -438,3 +438,74 @@ class RagPipeLine:
         except Exception as e:
             logger.error(f"Error calling LLM: {e}")
             return "I apologize, but I'm having trouble generating a response right now. Please try again later or rephrase your question."
+
+    
+    
+    
+    def create_retrieval_logs(self, question_answer, sources):
+        """Create content retrieval logs for analytics"""
+        try:
+            for rank, source in enumerate(sources, 1):
+                try:
+                    content = Content.objects.get(id=source['id'])
+                    ContentRetrievalLog.objects.create(
+                        question_answer=question_answer,
+                        content=content,
+                        similarity_score=source.get('similarity', 0.0),
+                        rank=rank
+                    )
+                    
+                    # Update content retrieval count and last accessed
+                    content.retrieval_count = models.F('retrieval_count') + 1
+                    content.last_accessed = timezone.now()
+                    content.save(update_fields=['retrieval_count', 'last_accessed'])
+                    
+                except Content.DoesNotExist:
+                    logger.warning(f"Content with id {source['id']} not found for retrieval log")
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"Error creating retrieval logs: {e}")
+    
+    def validate_embedding_consistency(self):
+        """Validate embedding consistency across the database"""
+        try:
+            content_with_embeddings = Content.objects.filter(
+                embedding__isnull=False,
+                is_active=True
+            )
+            
+            dimension_counts = {}
+            invalid_embeddings = []
+            
+            for content in content_with_embeddings:
+                try:
+                    if hasattr(content.embedding, 'tolist'):
+                        embedding_array = np.array(content.embedding.tolist())
+                    else:
+                        embedding_array = np.array(content.embedding)
+                    
+                    dimension = len(embedding_array)
+                    dimension_counts[dimension] = dimension_counts.get(dimension, 0) + 1
+                    
+                    # Check for invalid values
+                    if np.any(np.isnan(embedding_array)) or np.any(np.isinf(embedding_array)):
+                        invalid_embeddings.append(content.id)
+                        
+                except Exception as e:
+                    logger.error(f"Error validating embedding for content {content.id}: {e}")
+                    invalid_embeddings.append(content.id)
+            
+            logger.info(f"Embedding validation complete. Dimensions: {dimension_counts}")
+            if invalid_embeddings:
+                logger.warning(f"Invalid embeddings found for content IDs: {invalid_embeddings}")
+            
+            return {
+                'total_embeddings': content_with_embeddings.count(),
+                'dimension_counts': dimension_counts,
+                'invalid_embeddings': invalid_embeddings
+            }
+            
+        except Exception as e:
+            logger.error(f"Error validating embeddings: {e}")
+            return None
