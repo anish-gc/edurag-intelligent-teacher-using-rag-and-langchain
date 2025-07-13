@@ -1,346 +1,74 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EduRAG - Interactive Tutor Playground</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+{% extends 'base.html' %}
 
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
+{% block title %}EduRAG - Interactive Tutor Playground{% endblock %}
 
-        .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            width: 90%;
-            max-width: 800px;
-            padding: 30px;
-        }
+{% block content %}
+    <div class="header">
+        <h1>🎓 EduRAG Tutor</h1>
+        <p>Your AI-powered educational assistant</p>
+        <a href="{% url 'upload_content' %}" style="display: inline-block; margin-top: 15px; padding: 8px 16px; background: #667eea; color: white; text-decoration: none; border-radius: 20px; font-weight: 500; transition: background 0.3s;">Upload Content</a>
+    </div>
 
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
+    <div class="session-info" id="sessionInfo">
+        <span>Session ID: <strong id="sessionId">Generating...</strong></span>
+    </div>
 
-        .header h1 {
-            color: #333;
-            font-size: 2.5em;
-            margin-bottom: 10px;
-        }
+    <div class="session-actions">
+        <button class="action-btn" onclick="newSession()">New Session</button>
+        <button class="action-btn danger" onclick="clearChat()">Clear Chat</button>
+    </div>
 
-        .header p {
-            color: #666;
-            font-size: 1.1em;
-        }
-
-        .session-info {
-            background: #f8f9fa;
-            padding: 10px 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            font-size: 0.9em;
-            color: #666;
-            text-align: center;
-            border: 1px solid #e9ecef;
-        }
-
-        .controls {
-            display: flex;
-            gap: 20px;
-            margin-bottom: 30px;
-            flex-wrap: wrap;
-        }
-
-        .control-group {
-            flex: 1;
-            min-width: 200px;
-        }
-
-        .control-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #555;
-        }
-
-        .control-group select,
-        .control-group input {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 16px;
-            transition: border-color 0.3s;
-        }
-
-        .control-group select:focus,
-        .control-group input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .chat-container {
-            height: 400px;
-            border: 2px solid #e0e0e0;
-            border-radius: 12px;
-            overflow-y: auto;
-            padding: 20px;
-            margin-bottom: 20px;
-            background: #f9f9f9;
-        }
-
-        .message {
-            margin-bottom: 15px;
-            padding: 12px 16px;
-            border-radius: 12px;
-            max-width: 80%;
-            word-wrap: break-word;
-        }
-
-        .message.user {
-            background: #667eea;
-            color: white;
-            margin-left: auto;
-            text-align: right;
-        }
-
-        .message.assistant {
-            background: white;
-            color: #333;
-            border: 1px solid #e0e0e0;
-            margin-right: auto;
-        }
-
-        .message.system {
-            background: #fff3cd;
-            color: #856404;
-            border: 1px solid #ffeaa7;
-            text-align: center;
-            margin: 0 auto;
-        }
-
-        .input-container {
-            display: flex;
-            gap: 10px;
-        }
-
-        .input-container input {
-            flex: 1;
-            padding: 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 25px;
-            font-size: 16px;
-            outline: none;
-            transition: border-color 0.3s;
-        }
-
-        .input-container input:focus {
-            border-color: #667eea;
-        }
-
-        .send-btn {
-            padding: 15px 25px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 25px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: 600;
-            transition: background 0.3s;
-        }
-
-        .send-btn:hover {
-            background: #5a67d8;
-        }
-
-        .send-btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-        }
-
-        .loading {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: #666;
-        }
-
-        .loading::after {
-            content: '';
-            width: 20px;
-            height: 20px;
-            border: 2px solid #f3f3f3;
-            border-top: 2px solid #667eea;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .source-info {
-            font-size: 0.9em;
-            color: #666;
-            margin-top: 8px;
-            padding-top: 8px;
-            border-top: 1px solid #e0e0e0;
-        }
-
-        .confidence-bar {
-            width: 100%;
-            height: 4px;
-            background: #e0e0e0;
-            border-radius: 2px;
-            margin-top: 5px;
-            overflow: hidden;
-        }
-
-        .confidence-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #ff6b6b, #ffd93d, #6bcf7f);
-            transition: width 0.3s ease;
-        }
-
-        .metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-top: 20px;
-        }
-
-        .metric-card {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-            border: 1px solid #e9ecef;
-        }
-
-        .metric-value {
-            font-size: 1.5em;
-            font-weight: bold;
-            color: #667eea;
-            margin-bottom: 5px;
-        }
-
-        .metric-label {
-            font-size: 0.9em;
-            color: #666;
-        }
-
-        .session-actions {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            justify-content: center;
-        }
-
-        .action-btn {
-            padding: 8px 16px;
-            background: #28a745;
-            color: white;
-            border: none;
-            border-radius: 15px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.3s;
-        }
-
-        .action-btn:hover {
-            background: #218838;
-        }
-
-        .action-btn.danger {
-            background: #dc3545;
-        }
-
-        .action-btn.danger:hover {
-            background: #c82333;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🎓 EduRAG Tutor</h1>
-            <p>Your AI-powered educational assistant</p>
-             <a href="" style="display: inline-block; margin-top: 15px; padding: 8px 16px; background: #667eea; color: white; text-decoration: none; border-radius: 20px; font-weight: 500; transition: background 0.3s;">Upload Content</a>
+    <div class="controls">
+        <div class="control-group">
+            <label for="persona">Tutor Persona:</label>
+            <select id="persona">
+                <option value="friendly">😊 Friendly</option>
+                <option value="strict">📚 Strict</option>
+                <option value="humorous">😄 Humorous</option>
+                <option value="encouraging">🌟 Encouraging</option>
+            </select>
         </div>
-
-        <div class="session-info" id="sessionInfo">
-            <span>Session ID: <strong id="sessionId">Generating...</strong></span>
+        <div class="control-group">
+            <label for="grade">Grade Level:</label>
+            <select id="grade">
+                <option value="">All Grades</option>
+                <option value="1">Grade 1</option>
+                <option value="2">Grade 2</option>
+                <option value="3">Grade 3</option>
+                <option value="4">Grade 4</option>
+                <option value="5">Grade 5</option>
+                <option value="6">Grade 6</option>
+                <option value="7">Grade 7</option>
+                <option value="8">Grade 8</option>
+                <option value="9">Grade 9</option>
+                <option value="10">Grade 10</option>
+                <option value="11">Grade 11</option>
+                <option value="12">Grade 12</option>
+            </select>
         </div>
-
-        <div class="session-actions">
-            <button class="action-btn" onclick="newSession()">New Session</button>
-            <button class="action-btn danger" onclick="clearChat()">Clear Chat</button>
-        </div>
-
-        <div class="controls">
-            <div class="control-group">
-                <label for="persona">Tutor Persona:</label>
-                <select id="persona">
-                    <option value="friendly">😊 Friendly</option>
-                    <option value="strict">📚 Strict</option>
-                    <option value="humorous">😄 Humorous</option>
-                    <option value="encouraging">🌟 Encouraging</option>
-                </select>
-            </div>
-            <div class="control-group">
-                <label for="grade">Grade Level:</label>
-                <select id="grade">
-                    <option value="">All Grades</option>
-                    <option value="1">Grade 1</option>
-                    <option value="2">Grade 2</option>
-                    <option value="3">Grade 3</option>
-                    <option value="4">Grade 4</option>
-                    <option value="5">Grade 5</option>
-                    <option value="6">Grade 6</option>
-                    <option value="7">Grade 7</option>
-                    <option value="8">Grade 8</option>
-                    <option value="9">Grade 9</option>
-                    <option value="10">Grade 10</option>
-                    <option value="11">Grade 11</option>
-                    <option value="12">Grade 12</option>
-                </select>
-            </div>
-            <div class="control-group">
-                <label for="topic">Topic Filter:</label>
-                <input type="text" id="topic" placeholder="e.g., Mathematics, Science">
-            </div>
-        </div>
-
-        <div class="chat-container" id="chatContainer">
-            <div class="message system">
-                Welcome! I'm your AI tutor. Ask me anything about your studies! 📚
-            </div>
-        </div>
-
-        <div class="input-container">
-            <input type="text" id="questionInput" placeholder="Ask me anything about your studies..." maxlength="500">
-            <button class="send-btn" id="sendBtn" onclick="askQuestion()">Send</button>
-        </div>
-
-        <div class="metrics" id="metrics">
-            <!-- Metrics will be loaded here -->
+        <div class="control-group">
+            <label for="topic">Topic Filter:</label>
+            <input type="text" id="topic" placeholder="e.g., Mathematics, Science">
         </div>
     </div>
 
+    <div class="chat-container" id="chatContainer">
+        <div class="message system">
+            Welcome! I'm your AI tutor. Ask me anything about your studies! 📚
+        </div>
+    </div>
+
+    <div class="input-container">
+        <input type="text" id="questionInput" placeholder="Ask me anything about your studies..." maxlength="500">
+        <button class="send-btn" id="sendBtn" onclick="askQuestion()">Send</button>
+    </div>
+
+    <div class="metrics" id="metrics">
+        <!-- Metrics will be loaded here -->
+    </div>
+{% endblock %}
+
+{% block scripts %}
     <script>
         const API_BASE = 'http://localhost:8000';
         let isLoading = false;
@@ -354,43 +82,33 @@
         });
 
         function initializeSession() {
-            // Generate a new session ID
             currentSessionId = generateSessionId();
             document.getElementById('sessionId').textContent = currentSessionId;
         }
 
         function generateSessionId() {
-            // Generate a UUID-like session ID
-            return   Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            return Date.now() + '_' + Math.random().toString(36).substr(2, 9);
         }
 
         function newSession() {
-            // Generate new session ID
             currentSessionId = generateSessionId();
             document.getElementById('sessionId').textContent = currentSessionId;
-            
-            // Clear chat but keep welcome message
             const chatContainer = document.getElementById('chatContainer');
             chatContainer.innerHTML = `
                 <div class="message system">
                     New session started! I'm your AI tutor. Ask me anything about your studies! 📚
                 </div>
             `;
-            
-            // Re-add example questions
             setTimeout(addExampleQuestions, 500);
         }
 
         function clearChat() {
-            // Clear chat but keep current session
             const chatContainer = document.getElementById('chatContainer');
             chatContainer.innerHTML = `
                 <div class="message system">
                     Chat cleared! Continue asking questions in the same session. 📚
                 </div>
             `;
-            
-            // Re-add example questions
             setTimeout(addExampleQuestions, 500);
         }
 
@@ -418,11 +136,8 @@
             const grade = document.getElementById('grade').value;
             const topic = document.getElementById('topic').value;
             
-            // Add user message
             addMessage('user', question);
             input.value = '';
-            
-            // Show loading
             setLoading(true);
             const loadingMsg = addMessage('assistant', '', true);
 
@@ -437,13 +152,11 @@
                         persona: persona,
                         grade: grade || undefined,
                         topic: topic || undefined,
-                        session_id: currentSessionId  // Now including session_id
+                        session_id: currentSessionId
                     })
                 });
 
                 const data = await response.json();
-
-                // Remove loading message
                 loadingMsg.remove();
 
                 if (response.ok) {
@@ -475,25 +188,20 @@
             } else {
                 messageDiv.innerHTML = content;
 
-                // Add metadata if available
                 if (metadata) {
                     let sourceInfo = '<div class="source-info">';
-                    
                     if (metadata.confidence !== undefined) {
                         sourceInfo += `<div>Confidence: ${(metadata.confidence * 100).toFixed(1)}%</div>`;
                         sourceInfo += `<div class="confidence-bar"><div class="confidence-fill" style="width: ${metadata.confidence * 100}%"></div></div>`;
                     }
-                    
                     if (metadata.sources && metadata.sources.length > 0) {
                         sourceInfo += '<div>Sources: ';
                         sourceInfo += metadata.sources.map(s => `${s.title} (${s.topic})`).join(', ');
                         sourceInfo += '</div>';
                     }
-                    
                     if (metadata.sessionId) {
                         sourceInfo += `<div>Session: ${metadata.sessionId}</div>`;
                     }
-                    
                     sourceInfo += '</div>';
                     messageDiv.innerHTML += sourceInfo;
                 }
@@ -501,7 +209,6 @@
 
             container.appendChild(messageDiv);
             container.scrollTop = container.scrollHeight;
-            
             return messageDiv;
         }
 
@@ -509,7 +216,6 @@
             isLoading = loading;
             const sendBtn = document.getElementById('sendBtn');
             const input = document.getElementById('questionInput');
-            
             sendBtn.disabled = loading;
             input.disabled = loading;
             sendBtn.textContent = loading ? 'Sending...' : 'Send';
@@ -519,11 +225,10 @@
             try {
                 const response = await fetch(`${API_BASE}/api/metrics`);
                 const data = await response.json();
-                console.log(data);
                 const metricsContainer = document.getElementById('metrics');
                 metricsContainer.innerHTML = `
                     <div class="metric-card">
-                        <div class="metric-value">${data.total_content_files || 0}</div>
+                        <div class="metric-value">${data.overview.total_content_files || 0}</div>
                         <div class="metric-label">Content Files</div>
                     </div>
                     <div class="metric-card">
@@ -544,7 +249,6 @@
             }
         }
 
-        // Example questions for demonstration
         const exampleQuestions = [
             "What is algebra?",
             "How does photosynthesis work?",
@@ -553,7 +257,6 @@
             "How do I solve linear equations?"
         ];
 
-        // Add example questions as clickable suggestions
         function addExampleQuestions() {
             const container = document.getElementById('chatContainer');
             const examplesDiv = document.createElement('div');
@@ -569,8 +272,6 @@
             document.getElementById('questionInput').value = question;
         }
 
-        // Add example questions on load
         setTimeout(addExampleQuestions, 1000);
     </script>
-</body>
-</html>
+{% endblock %}

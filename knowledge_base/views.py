@@ -7,8 +7,8 @@ from django.core.paginator import Paginator
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.shortcuts import render
+from ai_tutor.llm_service_class import LLMService
 from ai_tutor.views import BaseApiView
-from copying.llm_service_class import LLMService
 from knowledge_base.models import Content, Topic
 from django.db import models
 from django.core.exceptions import ValidationError

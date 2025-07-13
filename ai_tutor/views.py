@@ -9,6 +9,9 @@ from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.core.paginator import Paginator
 import uuid
+    
+from django.db import models
+
 from ai_tutor.models import QuerySession, QuestionAnswer, TutorPersona
 from ai_tutor.rag_pipeline import RagPipeLine
 from knowledge_base.models import Content, Topic
@@ -329,8 +332,6 @@ class AskQuestionView(BaseApiView):
     
     
     
-    
-from django.db import models
 
 class AnalyticsView(BaseApiView):
     """Advanced analytics and reporting for the tutoring system"""
@@ -767,48 +768,3 @@ class ExportDataView(BaseApiView):
             
 
 
-# class GetTopicsView(View):
-#     """Get topics filtered by grade"""
-    
-#     def get(self, request):
-#         grade = request.GET.get('grade')
-        
-#         queryset = Content.objects.values('topic').distinct()
-#         if grade:
-#             queryset = queryset.filter(grade=grade)
-        
-#         topics = [item['topic'] for item in queryset]
-#         return JsonResponse({'topics': topics})
-
-
-
-
-# @method_decorator(csrf_exempt, name='dispatch')
-# class NaturalLanguageQueryView(View):
-#     """Handle natural language database queries"""
-    
-#     def post(self, request):
-#         try:
-#             # Parse JSON body
-#             data = json.loads(request.body)
-#             query = data.get('query')
-#             llm_service = LLMService()
-            
-#             # Convert to SQL
-#             sql_query = llm_service.natural_language_to_sql(query)
-            
-#             # Execute safely (add validation)
-#             from django.db import connection
-#             with connection.cursor() as cursor:
-#                 cursor.execute(sql_query)
-#                 results = cursor.fetchall()
-            
-#             return JsonResponse({
-#                 'query': query,
-#                 'sql_generated': sql_query,
-#                 'results': results
-#             })
-            
-#         except Exception as e:
-#             return JsonResponse({'error': str(e)}, status=400)
-                

@@ -189,15 +189,15 @@ class LLMService:
             # Build system prompt
             base_prompt = """You are an educational tutor. Use the following context to answer the student's question.
 
-Instructions:
-- Base your answer primarily on the provided context
-- If the context doesn't contain relevant information, politely say so and provide general guidance
-- Be clear, concise, and educational
-- Use examples when helpful
-- Maintain a supportive and encouraging tone
+            Instructions:
+            - Base your answer primarily on the provided context
+            - If the context doesn't contain relevant information, politely say so and provide general guidance
+            - Be clear, concise, and educational
+            - Use examples when helpful
+            - Maintain a supportive and encouraging tone
 
-Context:
-{context}"""
+            Context:
+            {context}"""
             
             if persona_prompt:
                 system_prompt = f"{persona_prompt}\n\n{base_prompt.format(context=context)}"
@@ -279,15 +279,15 @@ Context:
             # Build prompt for SQL generation
             system_prompt = f"""You are a SQL query generator. Convert natural language questions to SQL queries.
 
-{schema}
+            {schema}
 
-Rules:
-- Only use tables and columns that exist in the schema
-- Use proper SQL syntax for PostgreSQL
-- Return only the SQL query, no explanations
-- Use appropriate JOINs when referencing multiple tables
-- Use LIMIT to prevent excessive results
-- Be case-sensitive with column names"""
+            Rules:
+            - Only use tables and columns that exist in the schema
+            - Use proper SQL syntax for PostgreSQL
+            - Return only the SQL query, no explanations
+            - Use appropriate JOINs when referencing multiple tables
+            - Use LIMIT to prevent excessive results
+            - Be case-sensitive with column names"""
 
             response = openai.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -333,7 +333,7 @@ Rules:
             
             # Generate summary
             system_prompt = f"""Summarize the following content in {max_length} characters or less.
-Keep the main points and key information. Be concise but informative."""
+        Keep the main points and key information. Be concise but informative."""
             
             response = openai.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -375,8 +375,8 @@ Keep the main points and key information. Be concise but informative."""
             
             system_prompt = f"""Classify the following content into these categories: {categories_str}
 
-Return only a JSON object with category names as keys and confidence scores (0.0-1.0) as values.
-The scores should sum to 1.0. Example: {{"category1": 0.7, "category2": 0.3}}"""
+            Return only a JSON object with category names as keys and confidence scores (0.0-1.0) as values.
+            The scores should sum to 1.0. Example: {{"category1": 0.7, "category2": 0.3}}"""
             
             response = openai.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -423,7 +423,7 @@ The scores should sum to 1.0. Example: {{"category1": 0.7, "category2": 0.3}}"""
             content = self._validate_text_input(content)
             
             system_prompt = f"""Extract the {max_keywords} most important keywords from the following content.
-Return only the keywords separated by commas, no explanations."""
+            Return only the keywords separated by commas, no explanations."""
             
             response = openai.chat.completions.create(
                 model="gpt-3.5-turbo",
@@ -464,7 +464,7 @@ Return only the keywords separated by commas, no explanations."""
                 difficulty = "medium"
             
             system_prompt = f"""Generate {num_questions} {difficulty} level questions based on the following content.
-Make the questions educational and thought-provoking. Return only the questions, numbered."""
+                Make the questions educational and thought-provoking. Return only the questions, numbered."""
             
             response = openai.chat.completions.create(
                 model="gpt-3.5-turbo",
