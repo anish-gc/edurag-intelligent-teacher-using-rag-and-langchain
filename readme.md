@@ -47,4 +47,5 @@ cd edurag-intelligent-teacher-using-rag-and-langchain
 2. Set up Python Virtual Environment
 
 python3 -m venv venv
+
 source venv/bin/activate  # On Windows: venv\Scripts\activate
