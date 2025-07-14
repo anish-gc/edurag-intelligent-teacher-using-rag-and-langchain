@@ -9,10 +9,8 @@ from django.db import models
 from ai_tutor.models import TutorPersona
 from knowledge_base.models import Content
 from sklearn.metrics.pairwise import cosine_similarity
-from django.utils import timezone
-from retrieval.models import ContentRetrievalLog
+
 import json
-import uuid
 import re
 
 logger = logging.getLogger(__name__)

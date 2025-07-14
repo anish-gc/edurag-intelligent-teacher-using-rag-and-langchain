@@ -319,3 +319,9 @@ A: Check the service status with sudo systemctl status edurag.gunicorn and verif
 ## 📞 Support
 
 For any questions or issues, please create an issue in the repository or contact project maintainers at anishgharti.chhetry@gmail.com.
+
+
+## Note:
+```
+For Bonus Features,  api is made to rate answer but it is not implemented in ui. And Answer with question in QuestionAnswer Model
+```

@@ -1,5 +1,4 @@
 from django.shortcuts import get_object_or_404, render
-import json
 import logging
 from django.http import JsonResponse
 from django.db import transaction
