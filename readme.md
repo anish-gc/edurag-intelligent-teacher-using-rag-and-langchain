@@ -1,51 +1,296 @@
-EduRAG: Intelligent Tutor Using RAG and LangChain
+# EduRAG: Intelligent Tutor Using RAG and LangChain
 
-A sophisticated AI-powered educational tutoring system that leverages Retrieval-Augmented Generation (RAG), OpenAI's LLM APIs, and PostgreSQL with pgvector for semantic search to deliver intelligent, context-aware educational responses.
+EduRAG is a backend-powered AI tutoring system built for Danson Solutions Pvt. Ltd. as part of a Python Developer Assessment. It leverages Retrieval-Augmented Generation (RAG), Large Language Model (LLM) APIs, and a PostgreSQL-based knowledge base to provide context-aware educational responses to student queries. The system is designed with a modular architecture, supporting content management, semantic retrieval, and natural language querying
 
-🚀 Features
+## 🌟 Features
 
-Core Functionality
+- **Content Upload & Knowledge Base**: Upload text-based content (e.g., .txt files) with metadata (topic, title, grade) and store in a PostgreSQL database.
+- **Vector Embedding & Retrieval:**: Convert content into embeddings using LLM models and retrieve relevant content via semantic similarity with PGVector.
+- **RAG-Based Question Answering:**: Retrieve relevant content using vector search and generate answers using an LLM.
+- **Tutor Persona:**: Configurable AI tutor personas (e.g., friendly, strict, humorous) to customize response tone.
+- **Natural Language SQL Querying**: Convert natural language queries (e.g., "What topics are covered in Grade 5?") into SQL for database interaction.
+- **API Endpoints:**: RESTful API for content upload, question answering, topic retrieval, and system metrics.
+- **Production-Ready Deployment:**: Deployed locally with Nginx as a reverse proxy and Gunicorn for production-like setup.
 
-    Content Upload & Management: Upload educational content with metadata (topic, grade, difficulty)
-    Semantic Search: Vector-based similarity search using OpenAI embeddings with pgvector
-    RAG Pipeline: Retrieval-Augmented Generation for accurate, context-aware responses
-    Multiple Personas: Configurable tutor personalities (friendly, strict, humorous, etc.)
-    Natural Language SQL: Convert natural language queries to SQL for database insights
-    Interactive Playground: Web-based interface for testing the AI tutor
+## 🔧 Technology Stack
 
-Technical Features
+- **Backend**: Django 5.2+
+- **Database**: PostgreSQL 16+
+- **Vector Store:**: pGVector
+- **LLM APIs**: OpenAI (GPT) ,
+- **Libraries**: LangChain,  Django REST Framework ,
+- **Deployment**: Gunicorn, Nginx
+- **Frontend**:  Basic HTML templates with CSS (static/styles.css)
 
-    PostgreSQL with pgvector: Optimized vector storage and similarity search
-    OpenAI Integration: GPT models for answer generation and embedding creation
-    Fallback Mechanisms: Local embedding models and OpenAI fallback for reliability
-    Production Ready: Nginx + Gunicorn deployment configuration
-    Monitoring: Comprehensive logging and health checks
+## 📋 Prerequisites
 
-📋 Requirements
+Before setting up the project, ensure you have the following installed:
 
-System Requirements
+- Python 3.12+ 
+- PostgreSQL 16+
+- Git
+- pip
+- virtualenv (optional for development)
 
-    Python 3.12+
-    PostgreSQL 16+ with pgvector extension
-    Nginx
-    Git
+## 🚀 Getting Started
 
+Follow these steps to set up and run the project locally:
 
-Python Dependencies
+### 1. Clone the Repository
 
-See requirements/development.txt for full list of dependencies including:
-
-
-
-🛠️ Installation & Setup
-1. Clone the Repository
-
+```bash
 git clone git@github.com:anish-gc/edurag-intelligent-teacher-using-rag-and-langchain.git
 cd edurag-intelligent-teacher-using-rag-and-langchain
+```
+
+### 2. Set Up Virtual Environment
+
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# On Windows
+venv\Scripts\activate
+# On macOS/Linux
+source venv/bin/activate
+```
+
+### 3. Install Dependencies
+
+```bash
+pip install -r requirements/development.txt
+```
+
+### 4. Configure PostgreSQL
+
+Make sure PostgreSQL is installed and running. Create a database for the project:
+
+```bash
+# Access PostgreSQL
+psql -U postgres
+
+# Create database
+CREATE DATABASE edurag;
+
+# Enable PGVector extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
+# Exit PostgreSQL
+\q
+```
+
+### 5. Environment Variables
+
+Create a `.env` file in the project root (You can take sample from .env-sample. Just copy all the contents to .env):
+
+```
+DEBUG=True
+SECRET_KEY=your_secret_key_here
+DB_NAME=edurag
+DB_USER=postgres
+DB_PASSWORD=your_password
+DB_HOST=localhost
+DB_PORT=5432
+OPENAI_API_KEY=your_openai_api_key
+```
+
+### 6. Run Migrations
+
+```bash
+python manage.py makemigrations
+python manage.py migrate
+```
+
+### 7. Create a Superuser
+
+```bash
+python manage.py createsuperuser 
+```
+
+### 8. Run the development Server
+
+```bash
+python manage.py runserver
+```
+The application should now be accessible at http://localhost:8000.
+
+## 🗂️ Project Structure
+
+```
+edurag-intelligent-teacher-using-rag-and-langchain/
+├── ai_tutor/              # Core app for RAG pipeline and LLM services
+│   ├── llm_service_class.py  # LLM integration logic
+│   ├── rag_pipeline.py      # RAG implementation
+│   ├── models.py            # Database models for tutoring
+│   ├── views.py             # API views
+│   └── urls.py              # API routes
+├── knowledge_base/         # App for content and metadata management
+│   ├── models.py           # Database models for content
+│   ├── views.py            # Content upload and management views
+│   └── urls.py             # Content-related routes
+├── monitoring/             # App for system metrics and stats
+│   ├── models.py           # Metrics models
+│   ├── views.py            # Metrics views
+│   └── urls.py             # Metrics routes
+├── retrieval/              # App for vector embedding and retrieval
+│   ├── models.py           # Retrieval-related models
+│   ├── views.py            # Retrieval views
+│   └── urls.py             # Retrieval routes
+├── edrag/                  # Django project settings
+│   ├── settings.py         # Project configuration
+│   ├── urls.py             # Root URL configuration
+│   └── wsgi.py             # WSGI entry point
+├── templates/              # HTML templates for web interface
+│   ├── base.html           # Base template
+│   ├── interactive_tutor_playground.html  # Tutor interaction UI
+│   └── upload_content.html  # Content upload UI
+├── static/                 # Static files
+│   └── styles.css          # CSS styles
+├── media/                  # Uploaded content files
+│   └── content_files/      # Directory for uploaded .txt files
+├── logs/                   # Log files
+│   └── edurag.log          # Application logs
+├── requirements/           # Dependencies
+│   └── development.txt     # Development dependencies
+├── gunicorn.conf.py        # Gunicorn configuration
+└── manage.py               # Django management script
+```
 
 
-2. Set up Python Virtual Environment
+### 🔒 Local Deployment with Nginx
 
-python3 -m venv venv
+```bash
+sudo apt update
+sudo apt install nginx
+```
 
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+### Configure Gunicorn
+
+```bash
+gunicorn --config gunicorn.conf.py edrag.wsgi:application
+```
+This uses the gunicorn.conf.py file in the project root for configuration.
+
+### Configure nginx
+Create an Nginx configuration file (e.g., /etc/nginx/sites-available/edurag):
+
+```bash
+server {
+    listen 80;
+    server_name localhost;
+
+    # Static files
+    location /static/ {
+        alias /home/anishchengre/Production-Ready/edurag-intelligent-teacher-using-rag-and-langchain/static/;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Media files
+    location /media/ {
+        alias /home/anishchengre/Production-Ready/edurag-intelligent-teacher-using-rag-and-langchain/media/;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Main application
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_redirect off;
+    }
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Gzip compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+}
+
+```
+
+## 🔒 Local Development With Custom Domains
+
+To access tenant sites using subdomains locally:
+
+1. Edit your hosts file:
+    - Windows: `C:\Windows\System32\drivers\etc\hosts`
+    - macOS/Linux: `/etc/hosts`
+
+2. Add entries for your tenants:
+```
+127.0.0.1 localhost
+127.0.0.1 market1.localhost
+127.0.0.1 market2.localhost
+```
+
+## 🐳 Docker Support
+
+For Docker users, we provide a Docker Compose setup:
+
+```bash
+# Build and start containers
+docker-compose up -d
+
+# Run migrations
+docker-compose exec web python manage.py migrate_schemas
+
+# Create superuser
+docker-compose exec web python manage.py createsuperuser
+
+# Create tenant
+docker-compose exec web python manage.py create_custom_tenant
+```
+
+## 📝 Development Guidelines
+
+1. Follow PEP 8 coding style
+2. Write tests for new features
+3. Document code using docstrings
+4. Use feature branches and pull requests
+
+## 🔄 Deployment
+
+For production deployment:
+
+1. Set `DEBUG=False` in your .env file
+2. Configure a proper web server (Nginx/Apache)
+3. Use Gunicorn or uWSGI as the application server
+4. Set up proper SSL certificates for all domains
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create your feature branch: `git checkout -b feature/amazing-feature`
+3. Commit your changes: `git commit -m 'Add some amazing feature'`
+4. Push to the branch: `git push origin feature/amazing-feature`
+5. Open a Pull Request
+
+## 📜 License
+
+This project is licensed under the MIT License - see the LICENSE file for details
+
+## 🆘 Troubleshooting
+
+**Q: I can't access tenant subdomains locally**
+A: Make sure you've updated your hosts file and are using the .localhost suffix.
+
+**Q: Migrations aren't applying to all tenants**
+A: Use the `migrate_schemas` command instead of the standard `migrate`.
+
+**Q: How do I back up tenant data?**
+A: Each tenant is a separate schema in PostgreSQL, so you can back up individual schemas.
+
+## 📞 Support
+
+For any questions or issues, please create an issue in the repository or contact project maintainers at support@mandi-project.com.
