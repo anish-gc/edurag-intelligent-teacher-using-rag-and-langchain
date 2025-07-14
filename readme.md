@@ -22,6 +22,7 @@ Technical Features
     Monitoring: Comprehensive logging and health checks
 
 📋 Requirements
+
 System Requirements
 
     Python 3.12+
@@ -31,4 +32,19 @@ System Requirements
 
 
 Python Dependencies
+
 See requirements/development.txt for full list of dependencies including:
+
+
+
+🛠️ Installation & Setup
+1. Clone the Repository
+
+git clone git@github.com:anish-gc/edurag-intelligent-teacher-using-rag-and-langchain.git
+cd edurag-intelligent-teacher-using-rag-and-langchain
+
+
+2. Set up Python Virtual Environment
+
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
