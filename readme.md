@@ -18,15 +18,15 @@ EduRAG is a backend-powered AI tutoring system built for Danson Solutions Pvt. L
 - **Database**: PostgreSQL 16+
 - **Vector Store:**: pGVector
 - **LLM APIs**: OpenAI (GPT) ,
-- **Libraries**: LangChain,  Django REST Framework ,
+- **Libraries**: LangChain, Django REST Framework ,
 - **Deployment**: Gunicorn, Nginx
-- **Frontend**:  Basic HTML templates with CSS (static/styles.css)
+- **Frontend**: Basic HTML templates with CSS (static/styles.css)
 
 ## 📋 Prerequisites
 
 Before setting up the project, ensure you have the following installed:
 
-- Python 3.12+ 
+- Python 3.12+
 - PostgreSQL 16+
 - Git
 - pip
@@ -105,7 +105,7 @@ python manage.py migrate
 ### 7. Create a Superuser
 
 ```bash
-python manage.py createsuperuser 
+python manage.py createsuperuser
 ```
 
 ### 8. Run the development Server
@@ -113,6 +113,7 @@ python manage.py createsuperuser
 ```bash
 python manage.py runserver
 ```
+
 The application should now be accessible at http://localhost:8000.
 
 ## 🗂️ Project Structure
@@ -157,7 +158,6 @@ edurag-intelligent-teacher-using-rag-and-langchain/
 └── manage.py               # Django management script
 ```
 
-
 ### 🔒 Local Deployment with Nginx
 
 ```bash
@@ -165,14 +165,48 @@ sudo apt update
 sudo apt install nginx
 ```
 
-### Configure Gunicorn
+### Configure Gunicorn as a Systemd Service
+
+To ensure Gunicorn runs reliably, configure it as a systemd service:
+Create a systemd service file at /etc/systemd/system/edurag.gunicorn.service:
 
 ```bash
-gunicorn --config gunicorn.conf.py edrag.wsgi:application
+
+[Unit]
+Description=Gunicorn instance to serve Edurag app
+After=network.target
+
+[Service]
+User=anishchengre
+Group=anishchengre
+WorkingDirectory=/home/anishchengre/Production-Ready/edurag-intelligent-teacher-using-rag-and-langchain
+Environment="PATH=/home/anishchengre/Production-Ready/edurag-intelligent-teacher-using-rag-and-langchain/venv/bin"
+ExecStart=/home/anishchengre/Production-Ready/edurag-intelligent-teacher-using-rag-and-langchain/venv/bin/gunicorn --config gunicorn.conf.py edrag.wsgi:application
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+
 ```
-This uses the gunicorn.conf.py file in the project root for configuration.
+
+Replace anishchengre with your actual username and group, and ensure the WorkingDirectory and ExecStart paths match your project directory.
+
+### Enable and start the Gunicorn service:
+```bash
+sudo systemctl enable edurag.gunicorn
+sudo systemctl start edurag.gunicorn
+```
+
+### Verify the service is running
+```bash
+
+sudo systemctl status edurag.gunicorn
+
+```
 
 ### Configure nginx
+
 Create an Nginx configuration file (e.g., /etc/nginx/sites-available/edurag):
 
 ```bash
@@ -219,38 +253,26 @@ server {
 
 ```
 
-## 🔒 Local Development With Custom Domains
+### Enable Nginx Configuration
 
-To access tenant sites using subdomains locally:
-
-1. Edit your hosts file:
-    - Windows: `C:\Windows\System32\drivers\etc\hosts`
-    - macOS/Linux: `/etc/hosts`
-
-2. Add entries for your tenants:
-```
-127.0.0.1 localhost
-127.0.0.1 market1.localhost
-127.0.0.1 market2.localhost
-```
-
-## 🐳 Docker Support
-
-For Docker users, we provide a Docker Compose setup:
+Link the configuration to Nginx's sites-enabled directory:
 
 ```bash
-# Build and start containers
-docker-compose up -d
-
-# Run migrations
-docker-compose exec web python manage.py migrate_schemas
-
-# Create superuser
-docker-compose exec web python manage.py createsuperuser
-
-# Create tenant
-docker-compose exec web python manage.py create_custom_tenant
+sudo ln -s /etc/nginx/sites-available/edurag /etc/nginx/sites-enabled/
 ```
+
+### Test and Restart Nginx
+
+```bash
+# Test configuration
+sudo nginx -t
+
+# Restart Nginx
+sudo systemctl restart nginx
+```
+
+
+
 
 ## 📝 Development Guidelines
 
@@ -282,15 +304,18 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🆘 Troubleshooting
 
-**Q: I can't access tenant subdomains locally**
-A: Make sure you've updated your hosts file and are using the .localhost suffix.
+**Q: I get a "vector extension not found" error.**
+A: Ensure the vector extension is enabled in PostgreSQL with CREATE EXTENSION IF NOT EXISTS vector;.
 
-**Q: Migrations aren't applying to all tenants**
-A: Use the `migrate_schemas` command instead of the standard `migrate`.
+**Q:API endpoints return 404.**
+A: Verify that urls.py is correctly configured and the Gunicorn service or development server is running.
 
-**Q: How do I back up tenant data?**
-A: Each tenant is a separate schema in PostgreSQL, so you can back up individual schemas.
+**Q: Static files are not loading**
+A: Run python manage.py collectstatic and ensure the Nginx configuration points to the correct static/ directory.
+
+**Q: Gunicorn service fails to start.**
+A: Check the service status with sudo systemctl status edurag.gunicorn and verify the paths in edurag.gunicorn.service.
 
 ## 📞 Support
 
-For any questions or issues, please create an issue in the repository or contact project maintainers at support@mandi-project.com.
+For any questions or issues, please create an issue in the repository or contact project maintainers at anishgharti.chhetry@gmail.com.
