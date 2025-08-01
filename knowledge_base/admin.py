@@ -32,7 +32,7 @@ class ContentAdmin(admin.ModelAdmin):
             'fields': ('content_text', 'file_path', 'file_type')
         }),
         ('Embeddings', {
-            'fields': ('embedding_model', 'is_processed'),
+            'fields': ('embedding_model', 'is_processed', 'embedding'),
             'classes': ('collapse',)
         }),
         ('Status & Verification', {

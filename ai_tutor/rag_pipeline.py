@@ -39,7 +39,7 @@ class RagPipeLine:
             response = openai.embeddings.create(
                 model="text-embedding-ada-002", input=text
             )
-
+            print(f"the response is {response}")
             return np.array(response.data[0].embedding)
         except Exception as e:
             logger.error(f"OpenAI embedding failed: {e}")
